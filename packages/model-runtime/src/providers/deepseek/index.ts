@@ -17,8 +17,10 @@ import { fetchDeepSeekModels } from './modelFetch';
 
 const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1';
 const DEFAULT_DEEPSEEK_ANTHROPIC_BASE_URL = 'https://api.deepseek.com/anthropic';
+
 const DEEPSEEK_ANTHROPIC_BASE_URL_PATTERN = /\/anthropic\/?$/;
-const DEEPSEEK_ANTHROPIC_MODEL_BASE_URL_PATTERN = /\/anthropic(?:\/v1\/messages)?\/?$/;
+const DEEPSEEK_ANTHROPIC_MODEL_BASE_URL_PATTERN =
+  /\/anthropic(?:\/v1\/messages)?\/?$/;
 const DEEPSEEK_ANTHROPIC_MESSAGES_PATH_PATTERN = /\/v1\/messages\/?$/;
 
 type DeepSeekSDKType = 'anthropic' | 'openai';
@@ -38,69 +40,166 @@ const normalizeDeepSeekOpenAIModelBaseURL = (baseURL?: string | null) => {
  * `sdkType` explicitly selects the DeepSeek SDK wrapper for router-runtime channels.
  * Legacy baseURL suffix matching is only kept for existing configs that have not set it.
  */
-const resolveDeepSeekSDKType = (sdkType: unknown): DeepSeekSDKType | undefined => {
-  if (sdkType === undefined || sdkType === null || sdkType === '') return undefined;
-  if (sdkType === 'anthropic' || sdkType === 'openai') return sdkType;
+const resolveDeepSeekSDKType = (
+  sdkType: unknown,
+): DeepSeekSDKType | undefined => {
+  if (
+    sdkType === undefined ||
+    sdkType === null ||
+    sdkType === ''
+  ) {
+    return undefined;
+  }
 
-  throw new Error(`Unsupported DeepSeek sdkType: ${String(sdkType)}`);
+  if (
+    sdkType === 'anthropic' ||
+    sdkType === 'openai'
+  ) {
+    return sdkType;
+  }
+
+  throw new Error(
+    `Unsupported DeepSeek sdkType: ${String(sdkType)}`,
+  );
 };
 
-export const anthropicParams = createAnthropicCompatibleParams({
-  baseURL: DEFAULT_DEEPSEEK_ANTHROPIC_BASE_URL,
-  chatCompletion: {
-    handlePayload: buildDeepSeekAnthropicPayload,
-  },
-  customClient: {},
-  debug: {
-    chatCompletion: () => process.env.DEBUG_DEEPSEEK_CHAT_COMPLETION === '1',
-  },
-  generateObject: createDeepSeekAnthropicGenerateObject,
-  provider: ModelProvider.DeepSeek,
-});
+export const anthropicParams =
+  createAnthropicCompatibleParams({
+    baseURL:
+      DEFAULT_DEEPSEEK_ANTHROPIC_BASE_URL,
 
-export const LobeDeepSeekAnthropicAI = createAnthropicCompatibleRuntime(anthropicParams);
+    chatCompletion: {
+      handlePayload:
+        buildDeepSeekAnthropicPayload,
+    },
+
+    customClient: {},
+
+    debug: {
+      chatCompletion: () =>
+        process.env
+          .DEBUG_DEEPSEEK_CHAT_COMPLETION ===
+        '1',
+    },
+
+    generateObject:
+      createDeepSeekAnthropicGenerateObject,
+
+    provider:
+      ModelProvider.DeepSeek,
+  });
+
+export const LobeDeepSeekAnthropicAI =
+  createAnthropicCompatibleRuntime(
+    anthropicParams,
+  );
+
+
+// ============================================================================
+// OPENAI-COMPATIBLE DEEPSEEK RUNTIME
+//
+// IMPORTANT MODIFICATION:
+//
+// Stock LobeHub:
+//   baseURL: DEFAULT_DEEPSEEK_BASE_URL
+//
+// Our fork:
+//   baseURL: 'https://api.deepseek.com/beta'
+//
+// We need /beta because DeepSeek assistant prefix completion uses prefix:true.
+// ============================================================================
 
 export const openAIParams = {
-  baseURL: DEFAULT_DEEPSEEK_BASE_URL,
+  baseURL:
+    'https://api.deepseek.com/beta',
+
   chatCompletion: {
     // DeepSeek upstream rejects requests where input alone exceeds the
     // model context window with a 400 carrying `max_completion=0` in the
-    // message. Fail fast before round-tripping. See .
-    contextPreFlight: { models: deepseekChatModels },
-    handlePayload: buildDeepSeekOpenAIPayload,
+    // message. Fail fast before round-tripping.
+    contextPreFlight: {
+      models: deepseekChatModels,
+    },
+
+    handlePayload:
+      buildDeepSeekOpenAIPayload,
   },
+
   debug: {
-    chatCompletion: () => process.env.DEBUG_DEEPSEEK_CHAT_COMPLETION === '1',
+    chatCompletion: () =>
+      process.env
+        .DEBUG_DEEPSEEK_CHAT_COMPLETION ===
+      '1',
   },
+
   // Deepseek don't support json format well
   // use Tools calling to simulate
   generateObject: {
-    handlePayload: buildDeepSeekGenerateObjectPayload,
+    handlePayload:
+      buildDeepSeekGenerateObjectPayload,
+
     useToolsCalling: true,
   },
-  models: fetchDeepSeekModels,
-  provider: ModelProvider.DeepSeek,
+
+  models:
+    fetchDeepSeekModels,
+
+  provider:
+    ModelProvider.DeepSeek,
 } satisfies OpenAICompatibleFactoryOptions;
 
-export const LobeDeepSeekOpenAI = createOpenAICompatibleRuntime(openAIParams);
+export const LobeDeepSeekOpenAI =
+  createOpenAICompatibleRuntime(
+    openAIParams,
+  );
 
-type DeepSeekOpenAIRuntimeOptions = ConstructorParameters<typeof LobeDeepSeekOpenAI>[0];
+type DeepSeekOpenAIRuntimeOptions =
+  ConstructorParameters<
+    typeof LobeDeepSeekOpenAI
+  >[0];
 
-const fetchDeepSeekModelsWithOpenAI = ({ options }: { options?: DeepSeekOpenAIRuntimeOptions }) => {
-  const runtime = new LobeDeepSeekOpenAI({
-    ...options,
-    baseURL: normalizeDeepSeekOpenAIModelBaseURL(options?.baseURL),
-  });
+const fetchDeepSeekModelsWithOpenAI = ({
+  options,
+}: {
+  options?: DeepSeekOpenAIRuntimeOptions;
+}) => {
+  const runtime =
+    new LobeDeepSeekOpenAI({
+      ...options,
+
+      /*
+       * Model-list fetching remains on the normal /v1 path.
+       * We only need /beta for the chat runtime above.
+       */
+      baseURL:
+        normalizeDeepSeekOpenAIModelBaseURL(
+          options?.baseURL,
+        ),
+    });
 
   return runtime.models();
 };
 
-const createOpenAIRouter = (baseURLPattern?: RegExp) => ({
-  apiType: 'deepseek' as const,
-  ...(baseURLPattern ? { baseURLPattern } : {}),
-  id: 'openai-compatible',
-  options: { remark: 'openai-compatible' },
-  runtime: LobeDeepSeekOpenAI,
+const createOpenAIRouter = (
+  baseURLPattern?: RegExp,
+) => ({
+  apiType:
+    'deepseek' as const,
+
+  ...(baseURLPattern
+    ? { baseURLPattern }
+    : {}),
+
+  id:
+    'openai-compatible',
+
+  options: {
+    remark:
+      'openai-compatible',
+  },
+
+  runtime:
+    LobeDeepSeekOpenAI,
 });
 
 const createAnthropicRouter = ({
@@ -110,39 +209,76 @@ const createAnthropicRouter = ({
   baseURL?: string;
   baseURLPattern?: RegExp;
 } = {}) => ({
-  apiType: 'deepseek' as const,
-  ...(baseURLPattern ? { baseURLPattern } : {}),
-  id: 'anthropic-compatible',
+  apiType:
+    'deepseek' as const,
+
+  ...(baseURLPattern
+    ? { baseURLPattern }
+    : {}),
+
+  id:
+    'anthropic-compatible',
+
   options: {
-    ...(baseURL ? { baseURL } : {}),
-    remark: 'anthropic-compatible',
+    ...(baseURL
+      ? { baseURL }
+      : {}),
+
+    remark:
+      'anthropic-compatible',
   },
-  runtime: LobeDeepSeekAnthropicAI,
+
+  runtime:
+    LobeDeepSeekAnthropicAI,
 });
 
-export const params: CreateRouterRuntimeOptions = {
-  id: ModelProvider.DeepSeek,
-  models: fetchDeepSeekModelsWithOpenAI,
-  routers: (options) => {
-    const sdkType = resolveDeepSeekSDKType(options.sdkType);
+export const params: CreateRouterRuntimeOptions =
+  {
+    id:
+      ModelProvider.DeepSeek,
 
-    if (sdkType === 'anthropic') {
+    models:
+      fetchDeepSeekModelsWithOpenAI,
+
+    routers: (options) => {
+      const sdkType =
+        resolveDeepSeekSDKType(
+          options.sdkType,
+        );
+
+      if (
+        sdkType === 'anthropic'
+      ) {
+        return [
+          createAnthropicRouter({
+            baseURL:
+              normalizeDeepSeekAnthropicBaseURL(
+                options.baseURL,
+              ),
+          }),
+        ];
+      }
+
+      if (
+        sdkType === 'openai'
+      ) {
+        return [
+          createOpenAIRouter(),
+        ];
+      }
+
       return [
+        createOpenAIRouter(
+          /^(?!.*\/anthropic\/?$).+$/,
+        ),
+
         createAnthropicRouter({
-          baseURL: normalizeDeepSeekAnthropicBaseURL(options.baseURL),
+          baseURLPattern:
+            DEEPSEEK_ANTHROPIC_BASE_URL_PATTERN,
         }),
       ];
-    }
+    },
+  };
 
-    if (sdkType === 'openai') {
-      return [createOpenAIRouter()];
-    }
-
-    return [
-      createOpenAIRouter(/^(?!.*\/anthropic\/?$).+$/),
-      createAnthropicRouter({ baseURLPattern: DEEPSEEK_ANTHROPIC_BASE_URL_PATTERN }),
-    ];
-  },
-};
-
-export const LobeDeepSeekAI = createRouterRuntime(params);
+export const LobeDeepSeekAI =
+  createRouterRuntime(params);
